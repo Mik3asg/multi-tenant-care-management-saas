@@ -1,0 +1,38 @@
+# Local dependencies for the care-management MVP: Postgres + Redis.
+# Usage: docker-compose up   (or: docker compose up -d)
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: care-postgres
+    environment:
+      POSTGRES_DB: care
+      POSTGRES_USER: care
+      POSTGRES_PASSWORD: care
+    ports:
+      - "5432:5432"
+    volumes:
+      - care-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U care -d care"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: care-redis
+    # Persist sessions to disk so they survive a Redis container restart too.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - care-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  care-pgdata:
+  care-redisdata:

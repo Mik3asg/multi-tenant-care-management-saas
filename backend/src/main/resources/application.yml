@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: care-management
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/care}
+    username: ${SPRING_DATASOURCE_USERNAME:care}
+    password: ${SPRING_DATASOURCE_PASSWORD:care}
+
+  jpa:
+    hibernate:
+      # MVP convenience. For production use a real migration tool (Flyway/Liquibase)
+      # and set ddl-auto: validate. See README.
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+  session:
+    store-type: redis
+    # Session TTL; survives backend restarts because it lives in Redis.
+    timeout: 30m
+    redis:
+      namespace: care:session
+      flush-mode: on_save
+
+  security:
+    oauth2:
+      client:
+        registration:
+          auth0:
+            client-id: ${AUTH0_CLIENT_ID:rgdIViqVzp78tbmrtWIuFlsPPOjxaYL9}
+            client-secret: ${AUTH0_CLIENT_SECRET:wcxqGQiVgYri43aC4CBIg3IdlADsSU7TVymIYb_JsBJ6njOfoGVNTPwJ-YGLgjj8}
+            scope: openid, profile, email
+        provider:
+          auth0:
+            issuer-uri: ${AUTH0_ISSUER_URI:https://dev-6fuyzwr3byt5nsce.us.auth0.com/}
+
+# Auth0 Machine-to-Machine credentials for the Management API.
+# Create an M2M app in Auth0 → APIs → Auth0 Management API → grant create:users, read:users.
+auth0:
+  mgmt:
+    client-id: ${AUTH0_MGMT_CLIENT_ID:}
+    client-secret: ${AUTH0_MGMT_CLIENT_SECRET:}
+    issuer-uri: ${AUTH0_ISSUER_URI:https://dev-6fuyzwr3byt5nsce.us.auth0.com/}
+
+server:
+  port: ${SERVER_PORT:8090}

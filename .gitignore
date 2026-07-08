@@ -1,0 +1,16 @@
+# Java / Maven
+backend/target/
+*.class
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+
+# Misc
+.DS_Store
+*.log
+
+# Secrets
+.env
+.env.*
+!.env.example
