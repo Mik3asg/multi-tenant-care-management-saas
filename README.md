@@ -8,11 +8,11 @@ Multi-tenant B2B care management app. Each care home is an isolated tenant. Care
 | ------------- | ------------------------------------------------------- |
 | Frontend      | React + Vite (TypeScript)                               |
 | Backend       | Java 21, Spring Boot 3 (Web, Security, Data JPA)        |
-| Auth          | Auth0 (OIDC) via Backend-for-Frontend — no passwords stored |
+| Auth          | Auth0 (OIDC) via Backend-for-Frontend. No passwords stored |
 | Session store | Redis via Spring Session (cookie-based, not JWT)        |
 | Database      | PostgreSQL with Row-Level Security                      |
 | Local infra   | Docker Compose (Postgres + Redis)                       |
-| Production infra | AWS EKS, provisioned via Terraform; RDS Postgres + ElastiCache Redis; GitOps deployment via ArgoCD — see [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) |
+| Production infra | AWS EKS, provisioned via Terraform. RDS Postgres and ElastiCache Redis. GitOps deployment via ArgoCD. See [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) |
 
 ## Architecture
 
@@ -27,7 +27,7 @@ See [ADR 0001](docs/adr/docs/adr/0001-auth0-oidc-bff.md), [ADR 0002](docs/adr/do
 
 ### Infrastructure and deployment architecture
 
-The production environment runs on a real AWS EKS cluster. Terraform provisions all of it. GitOps keeps it in sync, so nobody runs `kubectl apply` by hand. Full reasoning is in [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md).
+The production environment runs on a real AWS EKS cluster. Terraform provisions all of it. GitOps keeps it in sync. Nobody runs `kubectl apply` by hand. Full reasoning is in [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md).
 
 **Compute and networking.** A dedicated VPC. An EKS cluster with a managed node group. ECR repositories for both images. All defined as Terraform modules (`infrastructure/terraform/modules/{vpc,eks,ecr}`).
 
@@ -54,16 +54,16 @@ care-management-app/
 ├── docker-compose.yml
 ├── docker-compose.prod.yml
 ├── docs/adr/                          # Architecture Decision Records
-├── .github/workflows/                 # CI/CD — Checkov on Terraform PRs; build, Trivy scan, push, bot-commit on main
+├── .github/workflows/                 # CI/CD: Checkov on Terraform PRs. Build, Trivy scan, push, bot-commit on main
 ├── infrastructure/
-│   ├── scripts/                       # up.sh / down.sh — stand up / tear down the whole environment
+│   ├── scripts/                       # up.sh and down.sh: start or stop the whole environment
 │   └── terraform/
-│       ├── bootstrap/                 # Remote state backend (S3 + DynamoDB) — created once, never destroyed
-│       ├── environments/production/   # Root module — wires every module together for this environment
+│       ├── bootstrap/                 # Remote state backend (S3 + DynamoDB). Created once, never destroyed
+│       ├── environments/production/   # Root module. Wires every module together for this environment
 │       └── modules/                   # vpc, eks, rds, elasticache, ecr, irsa, cluster-addons, github-oidc
 ├── kubernetes/
 │   ├── base/                          # Namespace, backend/frontend manifests, Ingress, ArgoCD Application
-│   └── overlays/production/           # Kustomize overlay — image tags CI updates on every deploy
+│   └── overlays/production/           # Kustomize overlay. CI updates the image tags here on every deploy
 ├── backend/src/main/java/com/meridian/care/
 │   ├── domain/                        # CareHome, AppUser, Resident, CareLogEntry
 │   ├── repo/                          # Tenant-scoped Spring Data repositories
@@ -84,7 +84,7 @@ care-management-app/
 CareHome(id, name, slug)
 AppUser(id, care_home_id, email, password_hash, display_name, role, auth0_sub)
   role ∈ {ADMIN, CARER}
-  auth0_sub — links to the Auth0 user identity
+  auth0_sub links to the Auth0 user identity
 Resident(id, care_home_id, full_name, date_of_birth, room)
 CareLogEntry(id, care_home_id, resident_id, author_user_id, created_at, category, note)
 ```
@@ -123,7 +123,7 @@ docker compose up -d
 
 ### 2. Start the backend
 
-Export Auth0 credentials (from the dashboard steps above) — these have no defaults in `application.yml`, so the backend fails fast at startup if any are unset:
+Export the Auth0 credentials from the dashboard steps above. These have no defaults in `application.yml`. The backend fails fast at startup if any are unset.
 
 ```bash
 export AUTH0_CLIENT_ID=...
@@ -133,7 +133,7 @@ export AUTH0_MGMT_CLIENT_ID=...
 export AUTH0_MGMT_CLIENT_SECRET=...
 ```
 
-`mvn spring-boot:run` does not read `.env` — if you keep these in the root `.env` file, export them into the shell first: `export $(grep -v '^#' .env | xargs)`.
+`mvn spring-boot:run` does not read `.env`. If you keep these values in the root `.env` file, export them into the shell first: `export $(grep -v '^#' .env | xargs)`.
 
 ```bash
 cd backend && mvn spring-boot:run
@@ -151,13 +151,13 @@ Frontend runs on **http://localhost:5173**.
 
 ### 4. Log in
 
-Go to **http://localhost:8090/oauth2/authorization/auth0** — this starts the Auth0 login flow and redirects to the app on success.
+Go to **http://localhost:8090/oauth2/authorization/auth0**. This starts the Auth0 login flow. It redirects to the app on success.
 
-> Do not open `http://localhost:5173` directly — it has no session yet.
+> Do not open `http://localhost:5173` directly. It has no session yet.
 
 ## Running as a full container stack (local, production-like)
 
-Uses `docker-compose.prod.yml` — builds and runs all services (Postgres, Redis, backend, frontend/nginx).
+Uses `docker-compose.prod.yml`. Builds and runs every service: Postgres, Redis, backend, and frontend/nginx.
 
 Create a `.env` file with your values:
 
@@ -189,9 +189,9 @@ http://localhost/oauth2/authorization/auth0
 
 ## Production deployment (AWS)
 
-The real deployment: AWS EKS, provisioned entirely via Terraform, with the application itself deployed and kept in sync by ArgoCD (GitOps). See [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) for why each piece is built the way it is.
+The real deployment runs on AWS EKS. Terraform provisions all of it. ArgoCD deploys the application and keeps it in sync using GitOps. See [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) for the full reasoning.
 
-**Prerequisites:** an AWS account with credentials configured locally, Terraform ≥ 1.9, `kubectl`, `kustomize`, a Cloudflare-managed domain, and the two Auth0 applications from the setup steps above.
+**Prerequisites:** an AWS account with credentials configured locally, Terraform version 1.9 or later, `kubectl`, `kustomize`, a Cloudflare-managed domain, and the two Auth0 applications from the setup steps above.
 
 ### 1. Bootstrap remote state
 
@@ -204,11 +204,11 @@ Creates the S3 bucket and DynamoDB table that hold Terraform state for everythin
 
 ### 2. Fill in your environment values
 
-Create `infrastructure/terraform/environments/production/terraform.tfvars` (gitignored — never committed) with your domain, contact email, and sizing choices. See the variables declared in that directory for the full list.
+Create `infrastructure/terraform/environments/production/terraform.tfvars`. This file is gitignored and never committed. Fill it in with your domain, contact email, and sizing choices. See the variables declared in that directory for the full list.
 
 ### 3. Seed the secrets Terraform never touches
 
-Terraform manages the infrastructure but deliberately never sees these values — seed them once, manually:
+Terraform manages the infrastructure. It deliberately never sees these values. Seed them once, manually.
 
 ```bash
 aws secretsmanager create-secret --name cloudflare-api-token \
@@ -226,7 +226,7 @@ cd infrastructure/terraform/environments/production
 terraform init && terraform apply
 ```
 
-Provisions the VPC, EKS cluster, RDS Postgres, ElastiCache Redis, ECR repositories, and every cluster add-on (ingress-nginx, cert-manager, external-dns, External Secrets Operator, kube-prometheus-stack, ArgoCD) in one apply.
+Provisions the VPC, EKS cluster, RDS Postgres, ElastiCache Redis, ECR repositories, and every cluster add-on in one apply. That includes ingress-nginx, cert-manager, external-dns, External Secrets Operator, kube-prometheus-stack, and ArgoCD.
 
 ### 5. Point `kubectl` at the new cluster
 
@@ -263,39 +263,39 @@ kubectl apply -k kubernetes/overlays/production
 kubectl apply -f kubernetes/base/argocd/application.yaml
 ```
 
-From here on, ArgoCD watches `kubernetes/overlays/production` and reconciles the cluster automatically — no further manual `kubectl apply` for application changes.
+From here on, ArgoCD watches `kubernetes/overlays/production`. It reconciles the cluster automatically. No further manual `kubectl apply` is needed for application changes.
 
 ### 9. Bootstrap the first admin
 
-`DataSeeder` never runs against a real database (`SPRING_PROFILES_ACTIVE=prod`), so there is no seeded account to log in with. Sign up via Auth0 on the real domain once — it will fail, since no linked account exists yet — then take the Auth0 `sub` it created and insert a `care_home` plus `app_user` row directly, the same way as [Onboarding a new care home](#onboarding-a-new-care-home) below, but against the real database. Every admin created after that first one goes through the ordinary Staff page (see ADR 0003).
+`DataSeeder` never runs against a real database, since `SPRING_PROFILES_ACTIVE=prod` is always set there. So there is no seeded account to log in with. Sign up via Auth0 on the real domain once. This first attempt will fail, since no linked account exists yet. Take the Auth0 `sub` it created. Insert a `care_home` row and an `app_user` row directly against the real database, the same way as [Onboarding a new care home](#onboarding-a-new-care-home) below. Every admin created after that first one goes through the ordinary Staff page. See [ADR 0003](docs/adr/docs/adr/0003-staff-management-auth0-management-api.md).
 
 ### Continuous deployment
 
-Add `AWS_ROLE_ARN` (from `terraform output github_actions_role_arn`) as a GitHub repository secret. From then on, every push to `main` touching `backend/` or `frontend/` builds both images, scans them with Trivy, pushes to ECR, and bot-commits the new tags into `kubernetes/overlays/production` — ArgoCD picks up the commit and redeploys with no manual step at all.
+Add `AWS_ROLE_ARN` as a GitHub repository secret. Get its value from `terraform output github_actions_role_arn`. From then on, every push to `main` that touches `backend/` or `frontend/` builds both images. It scans them with Trivy, pushes them to ECR, and bot-commits the new tags into `kubernetes/overlays/production`. ArgoCD picks up the commit and redeploys. No manual step is needed.
 
 ### Tearing down
 
-The whole point of the destroy/recreate cost model — nothing here should be a surprise, it's the intended workflow:
+This is the whole point of the destroy/recreate cost model. Nothing here should be a surprise. It is the intended workflow.
 
 ```bash
 cd infrastructure/terraform/environments/production
 terraform destroy
 ```
 
-Terraform destroys everything in the correct dependency order — cluster add-ons (ArgoCD, ingress-nginx, and the rest) first, then the node group, then the EKS cluster, then the VPC. `kubernetes/` is not Terraform-managed, so there's nothing to delete there separately: once the cluster goes, everything running inside it goes with it.
+Terraform destroys everything in the correct order. Cluster add-ons go first: ArgoCD, ingress-nginx, and the rest. Then the node group. Then the EKS cluster. Then the VPC last. `kubernetes/` is not Terraform-managed, so there is nothing to delete there separately. Once the cluster goes, everything running inside it goes with it.
 
-**Never destroy `infrastructure/terraform/bootstrap/`** — that's the remote state backend (S3 + DynamoDB) and is meant to persist across every destroy/recreate cycle.
+**Never destroy `infrastructure/terraform/bootstrap/`.** That is the remote state backend, S3 and DynamoDB. It is meant to persist across every destroy/recreate cycle.
 
-**After destroy completes, check for two things Terraform doesn't track:**
-- **The load balancer.** `ingress-nginx`'s `Service` is `type: LoadBalancer`, so Kubernetes' own AWS cloud-controller provisions the NLB dynamically — Terraform only tracks the Helm release that requested it. `aws elbv2 describe-load-balancers --region eu-west-2` should show nothing a few minutes after destroy; if it does, delete it manually (the single most expensive thing that could be silently left running).
-- **Cloudflare DNS.** `external-dns` normally removes its own record when the Ingress disappears, but the whole cluster — including `external-dns` itself — vanishes in one shot, so it may not get a clean chance to. Check the Cloudflare dashboard for a stale `care.virtualscale.dev` record.
+**After destroy completes, check for two things Terraform does not track:**
+- **The load balancer.** `ingress-nginx`'s `Service` is `type: LoadBalancer`. Kubernetes' own AWS cloud-controller provisions the NLB dynamically. Terraform only tracks the Helm release that requested it. Run `aws elbv2 describe-load-balancers --region eu-west-2` a few minutes after destroy. It should show nothing. If it does, delete it manually. This is the single most expensive thing that could be silently left running.
+- **Cloudflare DNS.** `external-dns` normally removes its own record when the Ingress disappears. But the whole cluster vanishes in one shot, including `external-dns` itself. It may not get a clean chance to clean up. Check the Cloudflare dashboard for a stale `care.virtualscale.dev` record.
 
 ### Redeploying afterwards
 
-1. Repeat the deployment steps above, starting from **step 4** (`terraform apply`) — the bootstrap state backend, `terraform.tfvars`, and the manually-seeded secrets (Cloudflare token, Auth0 credentials) all persist across a destroy and don't need recreating.
-2. **Step 6 (build and push images) is required, not optional** — ECR itself is destroyed and recreated along with everything else, so it comes back empty every time.
-3. Re-register ArgoCD (step 8) — the `Application` resource is a Kubernetes object, not a Terraform one, so it doesn't survive a cluster destroy.
-4. Bootstrap the first admin again (step 9) — a new RDS instance means an empty database.
+1. Repeat the deployment steps above, starting from **step 4** (`terraform apply`). The bootstrap state backend, `terraform.tfvars`, and the manually-seeded secrets (Cloudflare token, Auth0 credentials) all persist across a destroy. None of them need recreating.
+2. **Step 6, build and push images, is required, not optional.** ECR itself is destroyed and recreated along with everything else. It comes back empty every time.
+3. Re-register ArgoCD (step 8). The `Application` resource is a Kubernetes object, not a Terraform one. It does not survive a cluster destroy.
+4. Bootstrap the first admin again (step 9). A new RDS instance means an empty database.
 
 ## Stopping
 
@@ -332,9 +332,9 @@ Exit with **Ctrl+D**.
 
 ## Seeded data
 
-`DataSeeder` only runs when no `prod` Spring profile is active (`@Profile("!prod")`) — it never seeds demo data or logs demo credentials when `SPRING_PROFILES_ACTIVE=prod` (always set in Kubernetes). Local dev (no profile set) behaves as before.
+`DataSeeder` only runs when no `prod` Spring profile is active (`@Profile("!prod")`). It never seeds demo data, and never logs demo credentials, when `SPRING_PROFILES_ACTIVE=prod` is set. Kubernetes always sets that profile. Local dev, with no profile set, behaves as before.
 
-Two care homes seeded for local development. Passwords are managed by Auth0 — there are no local passwords. To log in, an `app_user` row must have `auth0_sub` set to a valid Auth0 User ID.
+Two care homes are seeded for local development. Passwords are managed by Auth0. There are no local passwords. To log in, an `app_user` row must have `auth0_sub` set to a valid Auth0 User ID.
 
 | Care home     | Role  | Email                                 |
 | ------------- | ----- | ------------------------------------- |
@@ -354,7 +354,7 @@ WHERE email = 'care-home-jupiter.admin@example.com';
 
 ## Onboarding a new care home
 
-Performed once per care home by the SaaS owner. After this, the admin manages their own staff from the UI — no more SQL needed.
+Performed once per care home by the SaaS owner. After this, the admin manages their own staff from the UI. No more SQL is needed.
 
 ### Naming conventions
 
@@ -363,13 +363,13 @@ Performed once per care home by the SaaS owner. After this, the admin manages th
 | `name` | Full display name of the care home | `Jupiter House`     |
 | `slug` | URL-safe identifier: lowercase, hyphens only, no spaces | `jupiter-house` |
 
-### Step 1 — Connect to the database
+### Step 1: Connect to the database
 
 ```bash
 docker exec -it care-postgres psql -U care -d care
 ```
 
-### Step 2 — Create the care home
+### Step 2: Create the care home
 
 ```sql
 INSERT INTO care_home (id, name, slug)
@@ -379,12 +379,12 @@ RETURNING id;
 
 Copy the returned `id`.
 
-### Step 3 — Create the first admin in Auth0
+### Step 3: Create the first admin in Auth0
 
 Auth0 Dashboard → **User Management → Users → + Create User**.
 Enter the admin's email. Copy the **User ID** (format: `auth0|abc123`).
 
-### Step 4 — Create the admin user
+### Step 4: Create the admin user
 
 ```sql
 INSERT INTO app_user (id, care_home_id, email, password_hash, display_name, role, auth0_sub)
@@ -399,17 +399,17 @@ VALUES (
 );
 ```
 
-### Step 5 — Admin logs in
+### Step 5: Admin logs in
 
 Send the admin: **http://localhost:8090/oauth2/authorization/auth0**
 
-They click **"Don't remember your password?"**, set a password via the email Auth0 sends, and log in. They can then create all staff from the **Staff** page.
+They click **"Don't remember your password?"** and set a password via the email Auth0 sends. Then they log in. They can then create all staff from the **Staff** page.
 
 ---
 
 ## Staff management and permissions
 
-Admins manage staff from the **Staff** page (header link, visible to admins only).
+Admins manage staff from the **Staff** page. Its link only shows in the header for admins.
 
 | Permission                 | Admin | Carer |
 | -------------------------- | :---: | :---: |
@@ -423,11 +423,11 @@ Admins manage staff from the **Staff** page (header link, visible to admins only
 | Delete staff member        | No    | No    |
 
 **Adding a staff member:**
-1. Fill in name, email, and role — submit the form on the Staff page
-2. The backend creates the Auth0 user and saves the local record
-3. The staff member receives an Auth0 email → clicks "Don't remember your password?" → sets a password → logs in
+1. Fill in name, email, and role. Submit the form on the Staff page.
+2. The backend creates the Auth0 user and saves the local record.
+3. The staff member receives an Auth0 email. They click "Don't remember your password?", set a password, and log in.
 
-An admin can only create staff for their own care home (enforced server-side).
+An admin can only create staff for their own care home. This is enforced server-side.
 
 ---
 
@@ -436,12 +436,12 @@ An admin can only create staff for their own care home (enforced server-side).
 | Method   | Path                                     | Access    | Notes                          |
 | -------- | ---------------------------------------- | --------- | ------------------------------ |
 | GET      | `/oauth2/authorization/auth0`            | Public    | Starts Auth0 login flow        |
-| GET      | `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness` | Public | Kubernetes probes — scoped narrowly, rest of `/actuator/**` stays authenticated |
+| GET      | `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness` | Public | Kubernetes probes. Narrowly scoped. Rest of `/actuator/**` stays authenticated |
 | POST     | `/api/auth/logout`                       | Auth      | Invalidates session            |
 | GET      | `/api/auth/me`                           | Auth      | Current user + care home       |
 | GET      | `/api/residents`                         | Auth      | Scoped to your care home       |
 | POST     | `/api/residents`                         | Admin     | Create a resident              |
-| GET      | `/api/residents/{id}`                    | Auth      | Detail + care log; 404 cross-tenant |
+| GET      | `/api/residents/{id}`                    | Auth      | Detail + care log. 404 cross-tenant |
 | PUT      | `/api/residents/{id}`                    | Admin     | Edit resident details          |
 | DELETE   | `/api/residents/{id}`                    | Admin     | Delete resident + care log     |
 | POST     | `/api/residents/{id}/care-log`           | Auth      | Add care log entry             |
@@ -458,6 +458,6 @@ An admin can only create staff for their own care home (enforced server-side).
 cd backend && mvn test
 ```
 
-Requires Docker running — tests use Testcontainers (real Postgres + Redis, not mocks).
+Requires Docker running. Tests use Testcontainers: real Postgres and Redis, not mocks.
 
-`TenantIsolationTest` is the core guard: a user from one care home must get **404** on another home's resident, **200** on their own, and a list scoped only to their home.
+`TenantIsolationTest` is the core guard. A user from one care home must get **404** on another home's resident, **200** on their own, and a list scoped only to their home.
