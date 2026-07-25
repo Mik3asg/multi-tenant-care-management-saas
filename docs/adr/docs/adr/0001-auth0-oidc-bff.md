@@ -5,69 +5,71 @@
 
 ## Context
 
-Owning credentials (passwords, MFA, lockout, reset) is a permanent security liability — particularly for a care-sector product with compliance requirements. B2B customers will require per-tenant SSO, which is expensive to build on a self-owned stack.
+Owning credentials is a permanent liability. Passwords, MFA, lockout, and password reset all need building and maintaining ourselves. This is a care-sector product, so compliance risk matters too. B2B customers will also want per-tenant SSO, and building that in-house would be expensive.
+
+The alternative to a self-hosted login system is to delegate identity to a provider. We chose Auth0.
 
 ## Decision
 
-Delegate identity to **Auth0 (OIDC)**. The backend acts as a confidential OAuth client using the BFF pattern:
+Auth0 handles authentication. The backend acts as a confidential OAuth client using the Backend-for-Frontend (BFF) pattern.
 
-- Backend completes the authorization-code flow server-side.
-- All tokens stay in the Redis session — the browser never sees them.
-- The browser receives only an `HttpOnly` session cookie.
-- Self-owned credential layer removed: no stored passwords, no BCrypt, no local login form.
+- The backend completes the authorization-code flow server-side.
+- All tokens stay in the Redis session. The browser never sees them.
+- The browser only receives an `HttpOnly` session cookie.
+- No stored passwords, no BCrypt, no local login form.
 
-**Tenant mapping:** an `auth0_sub` column on `app_user` links an Auth0 identity to a care home. On login, `Auth0OidcUserService` looks up the user by `sub` and returns an `AppUserPrincipal` with the correct `care_home_id`. The rest of the app is unchanged.
+**How identity maps to a care home.** Auth0 returns a `sub` claim, for example `auth0|abc123`. The app looks this up in `app_user.auth0_sub`. That row tells the app who the user is and which care home they belong to. The client never supplies `care_home_id` itself.
 
-**Identity → care home (plain English):** Auth0 returns a `sub` (e.g. `auth0|abc123`). The app looks it up in `app_user.auth0_sub`. That row determines who the user is and which care home they belong to. The client never supplies `care_home_id`.
+`Auth0OidcUserService` does this lookup on every login and returns an `AppUserPrincipal` with the correct `care_home_id`. The rest of the app does not need to know Auth0 exists.
 
-**Staff creation:** admins create staff from the app UI — the backend calls the Auth0 Management API automatically. See ADR 0003.
+**Staff creation.** Admins create staff from the app UI. The backend calls the Auth0 Management API automatically. See [ADR 0003](0003-staff-management-auth0-management-api.md).
 
-**Longer term:** Auth0 Organizations (one per care home) make per-tenant SSO a configuration step and remove the need for a local `auth0_sub` lookup entirely.
+**Longer term.** Auth0 Organizations, one per care home, would turn per-tenant SSO into a configuration step and remove the need for the local `auth0_sub` lookup entirely.
 
-## Login flow (step by step)
+## Login flow, step by step
 
-1. User clicks **Sign in** → browser navigates to `/oauth2/authorization/auth0`.
+1. User clicks **Sign in**. The browser navigates to `/oauth2/authorization/auth0`.
 2. Spring Security redirects the browser to Auth0's login page.
-3. User enters credentials on Auth0. Auth0 authenticates them.
+3. The user enters credentials. Auth0 authenticates them.
 4. Auth0 redirects the browser back to `/login/oauth2/code/auth0` with an authorisation code.
-5. Spring Security exchanges the code for tokens (server-side, never exposed to the browser).
+5. Spring Security exchanges the code for tokens. This happens server-side. The browser never sees the tokens.
 6. `Auth0OidcUserService` extracts the `sub` claim and looks up the local `app_user` row.
-7. An `AppUserPrincipal` (with `careHomeId`) is stored in the Redis session.
-8. Browser receives an opaque `SESSION` cookie and is redirected to the frontend.
-9. All subsequent requests carry the cookie — the server derives the tenant from it.
+7. An `AppUserPrincipal`, carrying `careHomeId`, is stored in the Redis session.
+8. The browser receives an opaque `SESSION` cookie and is redirected to the frontend.
+9. Every later request carries that cookie. The server reads the tenant from it.
 
 ## Logout flow
 
-1. User clicks **Sign out** → `POST /api/auth/logout`.
+1. User clicks **Sign out**. The browser calls `POST /api/auth/logout`.
 2. Spring Security invalidates the Redis session and clears the cookie.
-3. Browser is redirected to `Auth0 /v2/logout?returnTo=<frontend>`.
+3. The browser is redirected to Auth0's `/v2/logout?returnTo=<frontend>`.
 4. Auth0 clears its own session and redirects back to the frontend login page.
 
 ## Dual-session behaviour
 
-Two independent sessions exist:
+Two independent sessions exist side by side.
 
-| Session | Where | Cleared by |
-| ------- | ----- | ---------- |
-| App session | Redis (server-side) | Sign out in the app |
-| Auth0 SSO session | Auth0 + browser cookie | `/v2/logout` redirect |
+| Session | Where it lives | Cleared by |
+| ------- | --------------- | ---------- |
+| App session | Redis, server-side | Sign out in the app |
+| Auth0 SSO session | Auth0, plus a browser cookie | The `/v2/logout` redirect |
 
-Both are cleared by the logout flow above. If a user opens a new tab while still logged in, Auth0 recognises the active SSO session and shows a consent screen ("CareCloudly is requesting access…") instead of the login form — this is normal SSO behaviour. Clicking **Accept** resumes the session without re-entering credentials. A full sign-out removes both sessions.
+The logout flow above clears both. If a user opens a new tab while still logged in, Auth0 recognises the active SSO session. It shows a consent screen ("CareCloudly is requesting access...") instead of the login form. This is normal SSO behaviour, not a bug. Clicking **Accept** resumes the session without re-entering credentials. Only a full sign-out removes both sessions.
 
 ## Key files
 
-- `SecurityConfig` — `oauth2Login`, logout via Auth0 `/v2/logout`
-- `Auth0OidcUserService` — resolves `sub` → `AppUserPrincipal`
-- `AppUserPrincipal` — implements `OidcUser` + `UserDetails`; `oidcDelegate` is `transient`
-- `application.yml` — `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_ISSUER_URI`
+- `SecurityConfig`: configures `oauth2Login` and logout via Auth0's `/v2/logout`.
+- `Auth0OidcUserService`: resolves `sub` to `AppUserPrincipal`.
+- `AppUserPrincipal`: implements `OidcUser` and `UserDetails`. Its `oidcDelegate` field is `transient`.
+- `application.yml`: holds `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, and `AUTH0_ISSUER_URI`.
 
 ## Consequences
 
 **Positive**
-- No passwords stored. Reduced breach surface and compliance scope.
-- MFA, lockout, and password reset are the provider's responsibility.
-- Per-tenant SSO is a configuration step, not a build.
+- No passwords stored. Smaller breach surface and less compliance scope.
+- MFA, lockout, and password reset are the provider's job, not ours.
+- Per-tenant SSO becomes a configuration step, not something to build.
 
 **Negative**
-- Auth0 is in the critical login path (availability, vendor cost, some lock-in).
-- Auth0 logout is non-standard — `/v2/logout`, not OIDC `end_session`.
+- Auth0 sits in the critical login path. Its availability, cost, and lock-in all become our problem too.
+- Auth0's logout is non-standard. It uses `/v2/logout`, not the OIDC standard `end_session` endpoint.
