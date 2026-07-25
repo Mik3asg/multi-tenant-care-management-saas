@@ -12,6 +12,7 @@ Multi-tenant B2B care management app. Each care home is an isolated tenant. Care
 | Session store | Redis via Spring Session (cookie-based, not JWT)        |
 | Database      | PostgreSQL with Row-Level Security                      |
 | Local infra   | Docker Compose (Postgres + Redis)                       |
+| Production infra | AWS EKS, provisioned via Terraform; RDS Postgres + ElastiCache Redis; GitOps deployment via ArgoCD — see [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) |
 
 ## Architecture
 
@@ -117,7 +118,7 @@ Go to **http://localhost:8090/oauth2/authorization/auth0** — this starts the A
 
 > Do not open `http://localhost:5173` directly — it has no session yet.
 
-## Running as a full container stack (production-like)
+## Running as a full container stack (local, production-like)
 
 Uses `docker-compose.prod.yml` — builds and runs all services (Postgres, Redis, backend, frontend/nginx).
 
@@ -148,6 +149,92 @@ http://localhost/oauth2/authorization/auth0
 **Update Auth0 for the containerised URLs:**
 - Allowed Callback URL: `http://localhost/login/oauth2/code/auth0`
 - Allowed Logout URL: `http://localhost`
+
+## Production deployment (AWS)
+
+The real deployment: AWS EKS, provisioned entirely via Terraform, with the application itself deployed and kept in sync by ArgoCD (GitOps). See [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) for why each piece is built the way it is.
+
+**Prerequisites:** an AWS account with credentials configured locally, Terraform ≥ 1.9, `kubectl`, `kustomize`, a Cloudflare-managed domain, and the two Auth0 applications from the setup steps above.
+
+### 1. Bootstrap remote state
+
+```bash
+cd infrastructure/terraform/bootstrap
+terraform init && terraform apply
+```
+
+Creates the S3 bucket and DynamoDB table that hold Terraform state for everything else.
+
+### 2. Fill in your environment values
+
+Create `infrastructure/terraform/environments/production/terraform.tfvars` (gitignored — never committed) with your domain, contact email, and sizing choices. See the variables declared in that directory for the full list.
+
+### 3. Seed the secrets Terraform never touches
+
+Terraform manages the infrastructure but deliberately never sees these values — seed them once, manually:
+
+```bash
+aws secretsmanager create-secret --name cloudflare-api-token \
+  --secret-string '{"api-token":"<your-cloudflare-token>"}' --region eu-west-2
+
+aws secretsmanager create-secret --name auth0-credentials \
+  --secret-string '{"client-id":"...","client-secret":"...","issuer-uri":"...","mgmt-client-id":"...","mgmt-client-secret":"..."}' \
+  --region eu-west-2
+```
+
+### 4. Stand up the infrastructure
+
+```bash
+cd infrastructure/terraform/environments/production
+terraform init && terraform apply
+```
+
+Provisions the VPC, EKS cluster, RDS Postgres, ElastiCache Redis, ECR repositories, and every cluster add-on (ingress-nginx, cert-manager, external-dns, External Secrets Operator, kube-prometheus-stack, ArgoCD) in one apply.
+
+### 5. Point `kubectl` at the new cluster
+
+```bash
+aws eks update-kubeconfig --name <cluster_name> --region eu-west-2
+```
+
+### 6. Build and push the first images
+
+```bash
+aws ecr get-login-password --region eu-west-2 | docker login --username AWS --password-stdin <account_id>.dkr.ecr.eu-west-2.amazonaws.com
+
+docker build -t <account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend:v1 ./backend
+docker push <account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend:v1
+
+docker build -t <account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend:v1 ./frontend
+docker push <account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend:v1
+
+cd kubernetes/overlays/production
+kustomize edit set image \
+  <account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend=<account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend:v1 \
+  <account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend=<account_id>.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend:v1
+```
+
+### 7. First deploy
+
+```bash
+kubectl apply -k kubernetes/overlays/production
+```
+
+### 8. Register GitOps
+
+```bash
+kubectl apply -f kubernetes/base/argocd/application.yaml
+```
+
+From here on, ArgoCD watches `kubernetes/overlays/production` and reconciles the cluster automatically — no further manual `kubectl apply` for application changes.
+
+### 9. Bootstrap the first admin
+
+`DataSeeder` never runs against a real database (`SPRING_PROFILES_ACTIVE=prod`), so there is no seeded account to log in with. Sign up via Auth0 on the real domain once — it will fail, since no linked account exists yet — then take the Auth0 `sub` it created and insert a `care_home` plus `app_user` row directly, the same way as [Onboarding a new care home](#onboarding-a-new-care-home) below, but against the real database. Every admin created after that first one goes through the ordinary Staff page (see ADR 0003).
+
+### Continuous deployment
+
+Add `AWS_ROLE_ARN` (from `terraform output github_actions_role_arn`) as a GitHub repository secret. From then on, every push to `main` touching `backend/` or `frontend/` builds both images, scans them with Trivy, pushes to ECR, and bot-commits the new tags into `kubernetes/overlays/production` — ArgoCD picks up the commit and redeploys with no manual step at all.
 
 ## Stopping
 

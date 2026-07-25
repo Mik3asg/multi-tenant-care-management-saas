@@ -10,6 +10,10 @@ frontend/dist/
 .DS_Store
 *.log
 
+# Claude Code project instructions — kept local, not published
+CLAUDE.md
+.claude/
+
 # Secrets
 .env
 .env.*
