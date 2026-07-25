@@ -27,25 +27,14 @@ See [ADR 0001](docs/adr/docs/adr/0001-auth0-oidc-bff.md), [ADR 0002](docs/adr/do
 
 ### Infrastructure and deployment architecture
 
-The production environment runs on a real AWS EKS cluster. Terraform provisions all of it. GitOps keeps it in sync. Nobody runs `kubectl apply` by hand. Full reasoning is in [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md).
+Production runs on a real AWS EKS cluster, provisioned by Terraform and kept in sync by GitOps. Nobody runs `kubectl apply` by hand. Full reasoning is in [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md).
 
-**Compute and networking.** A dedicated VPC. An EKS cluster with a managed node group. ECR repositories for both images. All defined as Terraform modules (`infrastructure/terraform/modules/{vpc,eks,ecr}`).
-
-**Managed data stores.** RDS Postgres and ElastiCache Redis. Neither runs inside Kubernetes. Both are reachable only from the cluster's own security group.
-
-**Cluster add-ons, also via Terraform:**
-- `ingress-nginx` handles incoming traffic.
-- `cert-manager` issues TLS certificates through Let's Encrypt. Certificates were validated against the staging issuer first, then switched to the production issuer.
-- `external-dns` updates Cloudflare DNS records automatically to match the Ingress.
-- External Secrets Operator pulls the database password and Auth0 credentials from AWS Secrets Manager at runtime. Nothing secret ever lives in Git.
-- `kube-prometheus-stack` provides Prometheus and Grafana.
-- ArgoCD manages GitOps deployment.
-
-**GitOps deployment.** ArgoCD watches `kubernetes/overlays/production` in this repository. It reconciles the cluster to match automatically. Nothing else applies application manifests directly.
-
-**CI/CD via GitHub Actions.** GitHub authenticates to AWS through its own OIDC provider. No long-lived AWS keys are stored anywhere. Every pull request touching Terraform triggers a Checkov scan. Every push to `main` that touches the app code builds both images and scans them with Trivy, blocking on any CRITICAL finding. It then pushes the images to ECR and updates the image tags in the overlay ArgoCD watches. This closes the loop without a human touching the cluster.
-
-**Cost-conscious by design.** This is a portfolio project, not a service that needs to run continuously. Data stores are single-AZ. The node group is small. The whole environment can be destroyed and recreated on demand using `infrastructure/scripts/{up.sh,down.sh}`.
+- **Compute and networking.** A dedicated VPC, an EKS cluster with a managed node group, and ECR repositories for both images. All Terraform modules (`infrastructure/terraform/modules/{vpc,eks,ecr}`).
+- **Managed data stores.** RDS Postgres and ElastiCache Redis, neither running inside Kubernetes, both reachable only from the cluster's own security group.
+- **Cluster add-ons (also Terraform):** `ingress-nginx` for traffic, `cert-manager` for TLS via Let's Encrypt (staging issuer validated first, then production), `external-dns` to keep Cloudflare DNS in sync, External Secrets Operator to pull secrets from AWS Secrets Manager at runtime, `kube-prometheus-stack` for Prometheus and Grafana, and ArgoCD.
+- **GitOps deployment.** ArgoCD watches `kubernetes/overlays/production` and reconciles the cluster automatically. Nothing else applies application manifests directly.
+- **CI/CD via GitHub Actions.** GitHub authenticates to AWS via its own OIDC provider, so no long-lived AWS keys are stored anywhere. Every PR touching Terraform triggers a Checkov scan. Every push to `main` touching app code builds both images, scans them with Trivy (blocking on CRITICAL), pushes to ECR, and updates the image tags ArgoCD watches, closing the loop with no human touching the cluster.
+- **Cost-conscious by design.** A portfolio project, not a service that needs to run continuously: single-AZ data stores, a small node group, and the whole environment destroyable and recreatable on demand via `infrastructure/scripts/{up.sh,down.sh}`.
 
 ### Project layout
 
@@ -123,7 +112,7 @@ docker compose up -d
 
 ### 2. Start the backend
 
-Export the Auth0 credentials from the dashboard steps above. These have no defaults in `application.yml`. The backend fails fast at startup if any are unset.
+Export the Auth0 credentials from the dashboard steps above. They have no defaults in `application.yml`, so the backend fails fast at startup if any are unset.
 
 ```bash
 export AUTH0_CLIENT_ID=...
@@ -267,35 +256,35 @@ From here on, ArgoCD watches `kubernetes/overlays/production`. It reconciles the
 
 ### 9. Bootstrap the first admin
 
-`DataSeeder` never runs against a real database, since `SPRING_PROFILES_ACTIVE=prod` is always set there. So there is no seeded account to log in with. Sign up via Auth0 on the real domain once. This first attempt will fail, since no linked account exists yet. Take the Auth0 `sub` it created. Insert a `care_home` row and an `app_user` row directly against the real database, the same way as [Onboarding a new care home](#onboarding-a-new-care-home) below. Every admin created after that first one goes through the ordinary Staff page. See [ADR 0003](docs/adr/docs/adr/0003-staff-management-auth0-management-api.md).
+`DataSeeder` never runs in production, so there is no seeded account. Sign up via Auth0 on the real domain once (it will fail, since no linked account exists yet), then take the Auth0 `sub` it created and insert `care_home` and `app_user` rows directly, the same way as [Onboarding a new care home](#onboarding-a-new-care-home) below. Every admin after that first one uses the ordinary Staff page. See [ADR 0003](docs/adr/docs/adr/0003-staff-management-auth0-management-api.md).
 
 ### Continuous deployment
 
-Add `AWS_ROLE_ARN` as a GitHub repository secret. Get its value from `terraform output github_actions_role_arn`. From then on, every push to `main` that touches `backend/` or `frontend/` builds both images. It scans them with Trivy, pushes them to ECR, and bot-commits the new tags into `kubernetes/overlays/production`. ArgoCD picks up the commit and redeploys. No manual step is needed.
+Add `AWS_ROLE_ARN` (from `terraform output github_actions_role_arn`) as a GitHub repository secret. From then on, every push to `main` touching `backend/` or `frontend/` builds both images, scans them with Trivy, pushes to ECR, and bot-commits the new tags into `kubernetes/overlays/production`. ArgoCD picks up the commit and redeploys automatically.
 
 ### Tearing down
 
-This is the whole point of the destroy/recreate cost model. Nothing here should be a surprise. It is the intended workflow.
+Part of the normal workflow, not a special recovery procedure:
 
 ```bash
 cd infrastructure/terraform/environments/production
 terraform destroy
 ```
 
-Terraform destroys everything in the correct order. Cluster add-ons go first: ArgoCD, ingress-nginx, and the rest. Then the node group. Then the EKS cluster. Then the VPC last. `kubernetes/` is not Terraform-managed, so there is nothing to delete there separately. Once the cluster goes, everything running inside it goes with it.
+Terraform destroys everything in the correct order: cluster add-ons first (ArgoCD, ingress-nginx, and the rest), then the node group, then the EKS cluster, then the VPC. `kubernetes/` is not Terraform-managed, so there is nothing to delete separately, everything inside the cluster goes when it does.
 
-**Never destroy `infrastructure/terraform/bootstrap/`.** That is the remote state backend, S3 and DynamoDB. It is meant to persist across every destroy/recreate cycle.
+**Never destroy `infrastructure/terraform/bootstrap/`**, the remote state backend (S3 and DynamoDB). It is meant to persist across every cycle.
 
-**After destroy completes, check for two things Terraform does not track:**
-- **The load balancer.** `ingress-nginx`'s `Service` is `type: LoadBalancer`. Kubernetes' own AWS cloud-controller provisions the NLB dynamically. Terraform only tracks the Helm release that requested it. Run `aws elbv2 describe-load-balancers --region eu-west-2` a few minutes after destroy. It should show nothing. If it does, delete it manually. This is the single most expensive thing that could be silently left running.
-- **Cloudflare DNS.** `external-dns` normally removes its own record when the Ingress disappears. But the whole cluster vanishes in one shot, including `external-dns` itself. It may not get a clean chance to clean up. Check the Cloudflare dashboard for a stale `care.virtualscale.dev` record.
+**Check for two things Terraform does not track, after destroy completes:**
+- **The load balancer.** `ingress-nginx`'s `Service` is `type: LoadBalancer`, so Kubernetes' own AWS cloud-controller provisions the NLB, not Terraform. Run `aws elbv2 describe-load-balancers --region eu-west-2` a few minutes after destroy; it should show nothing. If it does, delete it manually, it is the single most expensive thing that could be silently left running.
+- **Cloudflare DNS.** `external-dns` normally removes its own record when the Ingress disappears, but the whole cluster (including `external-dns` itself) vanishes in one shot, so it may not get a clean chance to. Check the Cloudflare dashboard for a stale `care.virtualscale.dev` record.
 
 ### Redeploying afterwards
 
-1. Repeat the deployment steps above, starting from **step 4** (`terraform apply`). The bootstrap state backend, `terraform.tfvars`, and the manually-seeded secrets (Cloudflare token, Auth0 credentials) all persist across a destroy. None of them need recreating.
-2. **Step 6, build and push images, is required, not optional.** ECR itself is destroyed and recreated along with everything else. It comes back empty every time.
-3. Re-register ArgoCD (step 8). The `Application` resource is a Kubernetes object, not a Terraform one. It does not survive a cluster destroy.
-4. Bootstrap the first admin again (step 9). A new RDS instance means an empty database.
+1. Repeat the steps above from **step 4** (`terraform apply`). The state backend, `terraform.tfvars`, and the manually-seeded secrets all persist across a destroy and need no recreating.
+2. **Step 6 (build and push images) is required, not optional.** ECR is destroyed too, so it comes back empty every time.
+3. Re-register ArgoCD (step 8), a Kubernetes object that does not survive a cluster destroy.
+4. Bootstrap the first admin again (step 9): a new RDS instance means an empty database.
 
 ## Stopping
 
