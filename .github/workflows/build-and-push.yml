@@ -1,0 +1,132 @@
+name: Build, scan, and deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+
+# id-token:write is required for the GitHub OIDC -> AWS role assumption
+# (infrastructure/terraform/modules/github-oidc) — no long-lived AWS keys.
+# contents:write is required for the bot-commit back into the overlay.
+permissions:
+  id-token: write
+  contents: write
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REGISTRY: 207137402976.dkr.ecr.eu-west-2.amazonaws.com
+
+jobs:
+  build-backend:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: vars
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build backend image
+        run: docker build -t $ECR_REGISTRY/care-management/backend:${{ steps.vars.outputs.tag }} ./backend
+
+      # Blocks the workflow on CRITICAL findings.
+      - name: Trivy scan (block on CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/care-management/backend:${{ steps.vars.outputs.tag }}
+          severity: CRITICAL
+          exit-code: "1"
+
+      # Reports HIGH findings without failing the build (docs/infra-plan.md
+      # Phase 6: "block merge on CRITICAL, report HIGH").
+      - name: Trivy scan (report HIGH, non-blocking)
+        if: always()
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/care-management/backend:${{ steps.vars.outputs.tag }}
+          severity: HIGH
+          exit-code: "0"
+
+      - name: Push backend image
+        run: docker push $ECR_REGISTRY/care-management/backend:${{ steps.vars.outputs.tag }}
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: vars
+        run: echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build frontend image
+        run: docker build -t $ECR_REGISTRY/care-management/frontend:${{ steps.vars.outputs.tag }} ./frontend
+
+      - name: Trivy scan (block on CRITICAL)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/care-management/frontend:${{ steps.vars.outputs.tag }}
+          severity: CRITICAL
+          exit-code: "1"
+
+      - name: Trivy scan (report HIGH, non-blocking)
+        if: always()
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ env.ECR_REGISTRY }}/care-management/frontend:${{ steps.vars.outputs.tag }}
+          severity: HIGH
+          exit-code: "0"
+
+      - name: Push frontend image
+        run: docker push $ECR_REGISTRY/care-management/frontend:${{ steps.vars.outputs.tag }}
+
+  update-manifests:
+    needs: [build-backend, build-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      # Bot-commit into the overlay — ArgoCD picks this up on its own sync
+      # loop. CI never runs `kubectl apply` directly (GitOps pull-based sync,
+      # docs/infra-plan.md decision).
+      - name: Update image tags in overlay
+        working-directory: kubernetes/overlays/production
+        run: |
+          kustomize edit set image \
+            $ECR_REGISTRY/care-management/backend=$ECR_REGISTRY/care-management/backend:${{ needs.build-backend.outputs.tag }} \
+            $ECR_REGISTRY/care-management/frontend=$ECR_REGISTRY/care-management/frontend:${{ needs.build-frontend.outputs.tag }}
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add kubernetes/overlays/production/kustomization.yaml
+          git commit -m "Deploy backend/frontend ${{ needs.build-backend.outputs.tag }}" || echo "No changes to commit"
+          git push
