@@ -215,7 +215,13 @@ http://localhost/oauth2/authorization/auth0
 
 The real deployment runs on AWS EKS. Terraform provisions all of it. ArgoCD deploys the application and keeps it in sync using GitOps. See [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) for the full reasoning.
 
-**Prerequisites:** an AWS account with credentials configured locally, Terraform version 1.9 or later, `kubectl`, `kustomize`, a Cloudflare-managed domain, and the two Auth0 applications from the setup steps above.
+**Prerequisites:**
+- AWS account with credentials configured locally
+- Terraform version 1.9 or later
+- `kubectl`
+- `kustomize`
+- A Cloudflare-managed domain
+- The two Auth0 applications from the setup steps above
 
 ### 1. Bootstrap remote state
 
@@ -250,7 +256,12 @@ cd infrastructure/terraform/environments/production
 terraform init && terraform apply
 ```
 
-Provisions the VPC, EKS cluster, RDS Postgres, ElastiCache Redis, ECR repositories, and every cluster add-on in one apply. That includes ingress-nginx, cert-manager, external-dns, External Secrets Operator, kube-prometheus-stack, and ArgoCD.
+Creates, in one apply:
+- The VPC
+- The EKS cluster
+- RDS Postgres and ElastiCache Redis
+- ECR repositories
+- Every cluster add-on: ingress-nginx, cert-manager, external-dns, External Secrets Operator, kube-prometheus-stack, ArgoCD
 
 ### 5. Point `kubectl` at the new cluster
 
@@ -291,11 +302,23 @@ From here on, ArgoCD watches `kubernetes/overlays/production`. It reconciles the
 
 ### 9. Bootstrap the first admin
 
-`DataSeeder` never runs in production, so there is no seeded account. Sign up via Auth0 on the real domain once (it will fail, since no linked account exists yet), then take the Auth0 `sub` it created and insert `care_home` and `app_user` rows directly, the same way as [Onboarding a new care home](#onboarding-a-new-care-home) below. Every admin after that first one uses the ordinary Staff page. See [ADR 0003](docs/adr/docs/adr/0003-staff-management-auth0-management-api.md).
+`DataSeeder` never runs in production, so there is no seeded account to start from.
+
+- Sign up via Auth0 on the real domain once. It will fail, since no linked account exists yet.
+- Take the Auth0 `sub` it created.
+- Insert `care_home` and `app_user` rows directly, the same way as [Onboarding a new care home](#onboarding-a-new-care-home) below.
+- Every admin after that first one uses the ordinary Staff page. See [ADR 0003](docs/adr/docs/adr/0003-staff-management-auth0-management-api.md).
 
 ### Continuous deployment
 
-Add `AWS_ROLE_ARN` (from `terraform output github_actions_role_arn`) as a GitHub repository secret. From then on, every push to `main` touching `backend/` or `frontend/` builds both images, scans them with Trivy, pushes to ECR, and bot-commits the new tags into `kubernetes/overlays/production`. ArgoCD picks up the commit and redeploys automatically.
+**Setup, once:** add `AWS_ROLE_ARN` (from `terraform output github_actions_role_arn`) as a GitHub repository secret.
+
+**Then automatically, on every push to `main` touching `backend/` or `frontend/`:**
+- Build both images
+- Scan them with Trivy
+- Push to ECR
+- Bot-commit the new tags into `kubernetes/overlays/production`
+- ArgoCD picks up the commit and redeploys
 
 ### Tearing down
 
@@ -306,7 +329,13 @@ cd infrastructure/terraform/environments/production
 terraform destroy
 ```
 
-Terraform destroys everything in the correct order: cluster add-ons first (ArgoCD, ingress-nginx, and the rest), then the node group, then the EKS cluster, then the VPC. `kubernetes/` is not Terraform-managed, so there is nothing to delete separately, everything inside the cluster goes when it does.
+Terraform destroys everything in this order:
+1. Cluster add-ons (ArgoCD, ingress-nginx, and the rest)
+2. The node group
+3. The EKS cluster
+4. The VPC
+
+`kubernetes/` is not Terraform-managed, so there is nothing to delete separately, everything inside the cluster goes when it does.
 
 **Never destroy `infrastructure/terraform/bootstrap/`**, the remote state backend (S3 and DynamoDB). It is meant to persist across every cycle.
 
