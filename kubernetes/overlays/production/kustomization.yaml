@@ -10,7 +10,7 @@ resources:
 images:
 - name: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend
   newName: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend
-  newTag: v1
+  newTag: e463d4584931
 - name: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend
   newName: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend
-  newTag: v1
+  newTag: e463d4584931
