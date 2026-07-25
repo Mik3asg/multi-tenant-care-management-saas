@@ -27,14 +27,49 @@ See [ADR 0001](docs/adr/docs/adr/0001-auth0-oidc-bff.md), [ADR 0002](docs/adr/do
 
 ### Infrastructure and deployment architecture
 
-Production runs on a real AWS EKS cluster, provisioned by Terraform and kept in sync by GitOps. Nobody runs `kubectl apply` by hand. Full reasoning is in [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md).
+Production runs on a real AWS EKS cluster, provisioned by Terraform and kept in sync by GitOps. Nobody runs `kubectl apply` by hand. See [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md) for the full reasoning.
 
-- **Compute and networking.** A dedicated VPC, an EKS cluster with a managed node group, and ECR repositories for both images. All Terraform modules (`infrastructure/terraform/modules/{vpc,eks,ecr}`).
-- **Managed data stores.** RDS Postgres and ElastiCache Redis, neither running inside Kubernetes, both reachable only from the cluster's own security group.
-- **Cluster add-ons (also Terraform):** `ingress-nginx` for traffic, `cert-manager` for TLS via Let's Encrypt (staging issuer validated first, then production), `external-dns` to keep Cloudflare DNS in sync, External Secrets Operator to pull secrets from AWS Secrets Manager at runtime, `kube-prometheus-stack` for Prometheus and Grafana, and ArgoCD.
-- **GitOps deployment.** ArgoCD watches `kubernetes/overlays/production` and reconciles the cluster automatically. Nothing else applies application manifests directly.
-- **CI/CD via GitHub Actions.** GitHub authenticates to AWS via its own OIDC provider, so no long-lived AWS keys are stored anywhere. Every PR touching Terraform triggers a Checkov scan. Every push to `main` touching app code builds both images, scans them with Trivy (blocking on CRITICAL), pushes to ECR, and updates the image tags ArgoCD watches, closing the loop with no human touching the cluster.
-- **Cost-conscious by design.** A portfolio project, not a service that needs to run continuously: single-AZ data stores, a small node group, and the whole environment destroyable and recreatable on demand via `infrastructure/scripts/{up.sh,down.sh}`.
+#### Compute and networking
+
+- Dedicated VPC
+- EKS cluster with a managed node group
+- ECR repositories for both images
+
+Terraform modules: `infrastructure/terraform/modules/{vpc,eks,ecr}`.
+
+#### Managed data stores
+
+- RDS Postgres
+- ElastiCache Redis
+
+Neither runs inside Kubernetes. Both are reachable only from the cluster's own security group.
+
+#### Cluster add-ons (also Terraform)
+
+- `ingress-nginx`: traffic entry
+- `cert-manager`: TLS via Let's Encrypt (staging issuer validated first, then production)
+- `external-dns`: keeps Cloudflare DNS in sync with the Ingress
+- External Secrets Operator: pulls secrets from AWS Secrets Manager at runtime
+- `kube-prometheus-stack`: Prometheus and Grafana
+- ArgoCD: GitOps sync
+
+#### GitOps deployment
+
+ArgoCD watches `kubernetes/overlays/production` and reconciles the cluster automatically. Nothing else applies application manifests directly.
+
+#### CI/CD via GitHub Actions
+
+GitHub authenticates to AWS via its own OIDC provider, so no long-lived AWS keys are stored anywhere.
+
+- **On every pull request touching Terraform:** Checkov scans for misconfigurations.
+- **On every push to `main` touching app code:** build both images, scan with Trivy (blocks on CRITICAL), push to ECR, update the image tags ArgoCD watches. No human touches the cluster.
+
+#### Cost-conscious by design
+
+A portfolio project, not something that runs continuously:
+- Single-AZ data stores
+- A small node group
+- Destroyable and recreatable on demand via `infrastructure/scripts/{up.sh,down.sh}`
 
 ### Project layout
 
