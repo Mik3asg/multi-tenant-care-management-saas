@@ -25,3 +25,12 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
+  # ESO writes status fields (refreshTime, sync conditions) back onto the
+  # ExternalSecret object after every sync — without this, ArgoCD sees that
+  # as permanent drift from the git-committed spec and loops re-syncing a
+  # resource that's actually fine (Health already reports "Secret was synced").
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /status
