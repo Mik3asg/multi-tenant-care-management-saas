@@ -85,7 +85,7 @@ docker compose up -d
 
 ### 2. Start the backend
 
-Export Auth0 credentials (from the dashboard steps above):
+Export Auth0 credentials (from the dashboard steps above) — these have no defaults in `application.yml`, so the backend fails fast at startup if any are unset:
 
 ```bash
 export AUTH0_CLIENT_ID=...
@@ -94,6 +94,8 @@ export AUTH0_ISSUER_URI=https://<your-tenant>.us.auth0.com/
 export AUTH0_MGMT_CLIENT_ID=...
 export AUTH0_MGMT_CLIENT_SECRET=...
 ```
+
+`mvn spring-boot:run` does not read `.env` — if you keep these in the root `.env` file, export them into the shell first: `export $(grep -v '^#' .env | xargs)`.
 
 ```bash
 cd backend && mvn spring-boot:run
@@ -181,6 +183,8 @@ Exit with **Ctrl+D**.
 ---
 
 ## Seeded data
+
+`DataSeeder` only runs when no `prod` Spring profile is active (`@Profile("!prod")`) — it never seeds demo data or logs demo credentials when `SPRING_PROFILES_ACTIVE=prod` (always set in Kubernetes). Local dev (no profile set) behaves as before.
 
 Two care homes seeded for local development. Passwords are managed by Auth0 — there are no local passwords. To log in, an `app_user` row must have `auth0_sub` set to a valid Auth0 User ID.
 
@@ -284,6 +288,7 @@ An admin can only create staff for their own care home (enforced server-side).
 | Method   | Path                                     | Access    | Notes                          |
 | -------- | ---------------------------------------- | --------- | ------------------------------ |
 | GET      | `/oauth2/authorization/auth0`            | Public    | Starts Auth0 login flow        |
+| GET      | `/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness` | Public | Kubernetes probes — scoped narrowly, rest of `/actuator/**` stays authenticated |
 | POST     | `/api/auth/logout`                       | Auth      | Invalidates session            |
 | GET      | `/api/auth/me`                           | Auth      | Current user + care home       |
 | GET      | `/api/residents`                         | Auth      | Scoped to your care home       |
