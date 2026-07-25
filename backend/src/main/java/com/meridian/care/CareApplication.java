@@ -11,3 +11,4 @@ public class CareApplication {
         SpringApplication.run(CareApplication.class, args);
     }
 }
+// CI retest 2026-07-25T16:08:49Z
