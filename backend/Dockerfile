@@ -6,7 +6,7 @@ RUN mvn dependency:go-offline -q
 COPY src ./src
 RUN mvn package -DskipTests -q
 
-# Stage 2 — minimal runtime image
+# Stage 2 — minimal runtime image - Run the app
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=build /app/target/*.jar app.jar

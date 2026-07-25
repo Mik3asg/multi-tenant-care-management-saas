@@ -36,20 +36,36 @@ spring:
       client:
         registration:
           auth0:
-            client-id: ${AUTH0_CLIENT_ID:rgdIViqVzp78tbmrtWIuFlsPPOjxaYL9}
-            client-secret: ${AUTH0_CLIENT_SECRET:wcxqGQiVgYri43aC4CBIg3IdlADsSU7TVymIYb_JsBJ6njOfoGVNTPwJ-YGLgjj8}
+            client-id: ${AUTH0_CLIENT_ID}
+            client-secret: ${AUTH0_CLIENT_SECRET}
             scope: openid, profile, email
         provider:
           auth0:
-            issuer-uri: ${AUTH0_ISSUER_URI:https://dev-6fuyzwr3byt5nsce.us.auth0.com/}
+            issuer-uri: ${AUTH0_ISSUER_URI}
 
 # Auth0 Machine-to-Machine credentials for the Management API.
 # Create an M2M app in Auth0 → APIs → Auth0 Management API → grant create:users, read:users.
 auth0:
   mgmt:
-    client-id: ${AUTH0_MGMT_CLIENT_ID:}
-    client-secret: ${AUTH0_MGMT_CLIENT_SECRET:}
-    issuer-uri: ${AUTH0_ISSUER_URI:https://dev-6fuyzwr3byt5nsce.us.auth0.com/}
+    client-id: ${AUTH0_MGMT_CLIENT_ID}
+    client-secret: ${AUTH0_MGMT_CLIENT_SECRET}
+    issuer-uri: ${AUTH0_ISSUER_URI}
 
 server:
   port: ${SERVER_PORT:8090}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+

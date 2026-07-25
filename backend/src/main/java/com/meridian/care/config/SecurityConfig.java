@@ -84,6 +84,8 @@ public class SecurityConfig {
                         // Removed: /api/auth/login — local login endpoint no longer used
                         // Allow OAuth2 redirect endpoints required by the OIDC flow
                         .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
+                        // Kubernetes kubelet probes call these unauthenticated — no session cookie to send
+                        .requestMatchers("/actuator/health/**").permitAll()
                         .anyRequest().authenticated())
                 .securityContext(sc -> sc.securityContextRepository(contextRepository))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
