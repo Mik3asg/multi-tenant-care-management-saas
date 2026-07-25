@@ -16,29 +16,66 @@ Multi-tenant B2B care management app. Each care home is an isolated tenant. Care
 
 ## Architecture
 
-- **Auth0 OIDC (BFF).** The backend completes the OIDC flow server-side. Tokens stay in Redis. The browser receives only an opaque session cookie.
-- **Tenant from the session, never the client.** The authenticated principal carries `careHomeId`. Every request reads the tenant server-side. No endpoint accepts a `care_home_id` from the client.
-- **Shared schema + Row-Level Security.** Every domain table has a `care_home_id`. Application-layer scoping (`findByIdAndCareHomeId`) is the first line. Postgres RLS is the second — a query that omits the filter returns no rows instead of leaking data.
-- **Cross-tenant access returns 404**, not 403. Existence of a record is never revealed.
+### Application architecture
+
+- **Auth0 OIDC (BFF).** The backend completes the OIDC flow server-side. Tokens stay in Redis. The browser only gets an opaque session cookie.
+- **Tenant comes from the session, never the client.** The authenticated principal carries `careHomeId`. Every request reads the tenant server-side. No endpoint accepts a `care_home_id` from the client.
+- **Shared schema with Row-Level Security.** Every domain table has a `care_home_id` column. Application code scopes every query first, using methods like `findByIdAndCareHomeId`. Postgres RLS is the second line of defence. A query that forgets the filter returns no rows instead of leaking data.
+- **Cross-tenant access returns 404, not 403.** The app never reveals whether a record exists.
+
+See [ADR 0001](docs/adr/docs/adr/0001-auth0-oidc-bff.md), [ADR 0002](docs/adr/docs/adr/0002-multi-tenancy-data-isolation.md), and [ADR 0003](docs/adr/docs/adr/0003-staff-management-auth0-management-api.md) for the full reasoning.
+
+### Infrastructure and deployment architecture
+
+The production environment runs on a real AWS EKS cluster. Terraform provisions all of it. GitOps keeps it in sync, so nobody runs `kubectl apply` by hand. Full reasoning is in [ADR 0005](docs/adr/docs/adr/0005-aws-eks-production-infrastructure.md).
+
+**Compute and networking.** A dedicated VPC. An EKS cluster with a managed node group. ECR repositories for both images. All defined as Terraform modules (`infrastructure/terraform/modules/{vpc,eks,ecr}`).
+
+**Managed data stores.** RDS Postgres and ElastiCache Redis. Neither runs inside Kubernetes. Both are reachable only from the cluster's own security group.
+
+**Cluster add-ons, also via Terraform:**
+- `ingress-nginx` handles incoming traffic.
+- `cert-manager` issues TLS certificates through Let's Encrypt. Certificates were validated against the staging issuer first, then switched to the production issuer.
+- `external-dns` updates Cloudflare DNS records automatically to match the Ingress.
+- External Secrets Operator pulls the database password and Auth0 credentials from AWS Secrets Manager at runtime. Nothing secret ever lives in Git.
+- `kube-prometheus-stack` provides Prometheus and Grafana.
+- ArgoCD manages GitOps deployment.
+
+**GitOps deployment.** ArgoCD watches `kubernetes/overlays/production` in this repository. It reconciles the cluster to match automatically. Nothing else applies application manifests directly.
+
+**CI/CD via GitHub Actions.** GitHub authenticates to AWS through its own OIDC provider. No long-lived AWS keys are stored anywhere. Every pull request touching Terraform triggers a Checkov scan. Every push to `main` that touches the app code builds both images and scans them with Trivy, blocking on any CRITICAL finding. It then pushes the images to ECR and updates the image tags in the overlay ArgoCD watches. This closes the loop without a human touching the cluster.
+
+**Cost-conscious by design.** This is a portfolio project, not a service that needs to run continuously. Data stores are single-AZ. The node group is small. The whole environment can be destroyed and recreated on demand using `infrastructure/scripts/{up.sh,down.sh}`.
 
 ### Project layout
 
 ```
 care-management-app/
 ├── docker-compose.yml
-├── docs/adr/                       # Architecture Decision Records
+├── docker-compose.prod.yml
+├── docs/adr/                          # Architecture Decision Records
+├── .github/workflows/                 # CI/CD — Checkov on Terraform PRs; build, Trivy scan, push, bot-commit on main
+├── infrastructure/
+│   ├── scripts/                       # up.sh / down.sh — stand up / tear down the whole environment
+│   └── terraform/
+│       ├── bootstrap/                 # Remote state backend (S3 + DynamoDB) — created once, never destroyed
+│       ├── environments/production/   # Root module — wires every module together for this environment
+│       └── modules/                   # vpc, eks, rds, elasticache, ecr, irsa, cluster-addons, github-oidc
+├── kubernetes/
+│   ├── base/                          # Namespace, backend/frontend manifests, Ingress, ArgoCD Application
+│   └── overlays/production/           # Kustomize overlay — image tags CI updates on every deploy
 ├── backend/src/main/java/com/meridian/care/
-│   ├── domain/                     # CareHome, AppUser, Resident, CareLogEntry
-│   ├── repo/                       # Tenant-scoped Spring Data repositories
-│   ├── security/                   # AppUserPrincipal, Auth0OidcUserService
-│   ├── config/                     # SecurityConfig, RlsInitializer, TenantGucAspect
-│   ├── service/                    # ResidentService, StaffService
-│   └── web/                        # ResidentController, StaffController, AuthController, DTOs
+│   ├── domain/                        # CareHome, AppUser, Resident, CareLogEntry
+│   ├── repo/                          # Tenant-scoped Spring Data repositories
+│   ├── security/                      # AppUserPrincipal, Auth0OidcUserService, Auth0ManagementService
+│   ├── config/                        # SecurityConfig, RlsInitializer, TenantGucAspect
+│   ├── service/                       # ResidentService, StaffService
+│   └── web/                           # ResidentController, StaffController, AuthController, DTOs
 └── frontend/src/
-    ├── api.ts                      # Typed API client
-    ├── auth.tsx                    # Auth context
-    ├── App.tsx                     # Routes
-    └── pages/                      # Residents, ResidentDetail, Staff, Login
+    ├── api.ts                         # Typed API client
+    ├── auth.tsx                       # Auth context
+    ├── App.tsx                        # Routes
+    └── pages/                         # Residents, ResidentDetail, Staff, Login
 ```
 
 ## Data model
@@ -235,6 +272,30 @@ From here on, ArgoCD watches `kubernetes/overlays/production` and reconciles the
 ### Continuous deployment
 
 Add `AWS_ROLE_ARN` (from `terraform output github_actions_role_arn`) as a GitHub repository secret. From then on, every push to `main` touching `backend/` or `frontend/` builds both images, scans them with Trivy, pushes to ECR, and bot-commits the new tags into `kubernetes/overlays/production` — ArgoCD picks up the commit and redeploys with no manual step at all.
+
+### Tearing down
+
+The whole point of the destroy/recreate cost model — nothing here should be a surprise, it's the intended workflow:
+
+```bash
+cd infrastructure/terraform/environments/production
+terraform destroy
+```
+
+Terraform destroys everything in the correct dependency order — cluster add-ons (ArgoCD, ingress-nginx, and the rest) first, then the node group, then the EKS cluster, then the VPC. `kubernetes/` is not Terraform-managed, so there's nothing to delete there separately: once the cluster goes, everything running inside it goes with it.
+
+**Never destroy `infrastructure/terraform/bootstrap/`** — that's the remote state backend (S3 + DynamoDB) and is meant to persist across every destroy/recreate cycle.
+
+**After destroy completes, check for two things Terraform doesn't track:**
+- **The load balancer.** `ingress-nginx`'s `Service` is `type: LoadBalancer`, so Kubernetes' own AWS cloud-controller provisions the NLB dynamically — Terraform only tracks the Helm release that requested it. `aws elbv2 describe-load-balancers --region eu-west-2` should show nothing a few minutes after destroy; if it does, delete it manually (the single most expensive thing that could be silently left running).
+- **Cloudflare DNS.** `external-dns` normally removes its own record when the Ingress disappears, but the whole cluster — including `external-dns` itself — vanishes in one shot, so it may not get a clean chance to. Check the Cloudflare dashboard for a stale `care.virtualscale.dev` record.
+
+### Redeploying afterwards
+
+1. Repeat the deployment steps above, starting from **step 4** (`terraform apply`) — the bootstrap state backend, `terraform.tfvars`, and the manually-seeded secrets (Cloudflare token, Auth0 credentials) all persist across a destroy and don't need recreating.
+2. **Step 6 (build and push images) is required, not optional** — ECR itself is destroyed and recreated along with everything else, so it comes back empty every time.
+3. Re-register ArgoCD (step 8) — the `Application` resource is a Kubernetes object, not a Terraform one, so it doesn't survive a cluster destroy.
+4. Bootstrap the first admin again (step 9) — a new RDS instance means an empty database.
 
 ## Stopping
 

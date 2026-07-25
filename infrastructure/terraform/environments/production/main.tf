@@ -155,6 +155,13 @@ data "aws_secretsmanager_secret_version" "rds_master" {
 
 resource "aws_secretsmanager_secret" "db_credentials" {
   name = var.db_credentials_secret_name
+
+  // Skip the default ~30-day recovery window on delete. This is just a mirror
+  // of the real RDS-managed password, not a source of truth — nothing
+  // meaningful to recover once RDS itself is gone. Without this, a
+  // destroy/apply cycle fails on the second apply: AWS refuses to create a
+  // new secret with this name while the old one is still "pending deletion".
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "db_credentials" {
