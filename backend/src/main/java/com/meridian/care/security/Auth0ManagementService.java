@@ -26,6 +26,11 @@ public class Auth0ManagementService {
     @Value("${auth0.mgmt.issuer-uri}")
     private String issuerUri;
 
+    // The regular (non-M2M) OIDC client — needed to call the public
+    // dbconnections/change_password endpoint below.
+    @Value("${spring.security.oauth2.client.registration.auth0.client-id}")
+    private String oidcClientId;
+
     private final RestTemplate rest = new RestTemplate();
 
     // Fetches a short-lived Management API token via client_credentials grant
@@ -53,7 +58,9 @@ public class Auth0ManagementService {
 
     /**
      * Creates a user in Auth0 and returns their sub (e.g. "auth0|abc123").
-     * Auth0 sends them a "verify email / set password" email automatically.
+     * Sends a real "set your password" email via dbconnections/change_password —
+     * verify_email alone (below) only triggers an email-address verification
+     * email, which does NOT let the user set a usable password.
      */
     public String createUser(String email, String displayName) {
         String token = getManagementToken();
@@ -66,7 +73,8 @@ public class Auth0ManagementService {
                 "email", email,
                 "name", displayName,
                 "connection", "Username-Password-Authentication",
-                // Temporary random password — user will reset via the email Auth0 sends
+                // Random, unguessable, and never used — the user sets their real
+                // password via the change-password email triggered below.
                 "password", "Temp-" + java.util.UUID.randomUUID() + "!",
                 "verify_email", true,
                 "email_verified", false);
@@ -80,6 +88,30 @@ public class Auth0ManagementService {
         if (response == null || !response.containsKey("user_id")) {
             throw new IllegalStateException("Auth0 user creation did not return a user_id");
         }
+
+        sendPasswordChangeEmail(email);
+
         return (String) response.get("user_id");
+    }
+
+    /**
+     * Triggers Auth0's built-in "Change Password" email via the public
+     * Authentication API (not Management API — no bearer token, uses the
+     * regular OIDC client-id). This is the actual mechanism that lets a
+     * newly-created staff member set a real, usable password.
+     */
+    private void sendPasswordChangeEmail(String email) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        Map<String, Object> body = Map.of(
+                "client_id", oidcClientId,
+                "email", email,
+                "connection", "Username-Password-Authentication");
+
+        rest.postForObject(
+                issuerUri + "dbconnections/change_password",
+                new HttpEntity<>(body, headers),
+                String.class);
     }
 }
