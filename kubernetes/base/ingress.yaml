@@ -1,0 +1,33 @@
+# Host below drives three things automatically once applied:
+#   - external-dns creates the DNS A/CNAME record in Cloudflare (sources: [ingress] in its Helm values)
+#   - cert-manager's ingress-shim creates a Certificate for tls.secretName via the annotated issuer
+#   - ingress-nginx routes traffic to the frontend Service
+#
+# letsencrypt-staging was validated first (Phase 5 verify — Certificate went
+# Ready:True), per docs/infra-plan.md Phase 7 guidance to avoid Let's Encrypt
+# production rate limits while iterating. Now flipped to letsencrypt-prod for
+# a browser-trusted cert.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: care-app
+  namespace: production
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts:
+        - care.virtualscale.dev
+      secretName: care-app-tls-prod
+  rules:
+    - host: care.virtualscale.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

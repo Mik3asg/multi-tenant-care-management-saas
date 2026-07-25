@@ -1,0 +1,93 @@
+# DB/Redis endpoints hardcoded below are safe across RDS/ElastiCache
+# destroy/recreate — confirmed empirically that their hostnames are derived
+# from the instance identifier (stable), unlike the RDS-managed secret's ARN
+# (see main.tf's db_credentials shadow-secret comment for the ARN-drift case).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: production
+  labels:
+    app: backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      serviceAccountName: backend
+      containers:
+        - name: backend
+          # Tag set by kustomize overlay (overlays/production/kustomization.yaml `images:`).
+          image: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend:placeholder
+          ports:
+            - containerPort: 8090
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://carecloudly-postgres.chgsg806uugi.eu-west-2.rds.amazonaws.com:5432/caremanagement"
+            - name: SPRING_DATASOURCE_USERNAME
+              value: "care_app_admin"
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: DB_PASSWORD
+            - name: SPRING_DATA_REDIS_HOST
+              value: "carecloudly-redis.xfapr4.0001.euw2.cache.amazonaws.com"
+            - name: SPRING_DATA_REDIS_PORT
+              value: "6379"
+            # TODO: confirm this matches the real ingress host (kubernetes/base/ingress.yaml)
+            # once decided, and update Auth0 dashboard Allowed Callback/Logout/Web Origins
+            # to match (docs/infra-plan.md Phase 7).
+            - name: APP_FRONTEND_URL
+              value: "https://care.virtualscale.dev"
+            - name: AUTH0_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: AUTH0_CLIENT_ID
+            - name: AUTH0_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: AUTH0_CLIENT_SECRET
+            - name: AUTH0_ISSUER_URI
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: AUTH0_ISSUER_URI
+            - name: AUTH0_MGMT_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: AUTH0_MGMT_CLIENT_ID
+            - name: AUTH0_MGMT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: AUTH0_MGMT_CLIENT_SECRET
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8090
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8090
+            initialDelaySeconds: 40
+            periodSeconds: 15

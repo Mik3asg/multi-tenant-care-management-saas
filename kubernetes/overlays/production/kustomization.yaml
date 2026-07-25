@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../base
+
+# Phase 6's CI bot-commit updates these tags via `kustomize edit set image` on
+# every push to main. Until then, set them manually after building/pushing:
+#   kustomize edit set image 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend=207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend:<tag>
+images:
+- name: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend
+  newName: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/backend
+  newTag: v1
+- name: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend
+  newName: 207137402976.dkr.ecr.eu-west-2.amazonaws.com/care-management/frontend
+  newTag: v1

@@ -1,0 +1,43 @@
+# ArgoCD — sized down for a small portfolio node group. No ingress: UI access
+# is kubectl port-forward only (docs/infra-plan.md "Lower-impact defaults").
+# --insecure disables TLS on the server itself since nothing external ever
+# reaches it directly — port-forward is the only access path.
+server:
+  service:
+    type: ClusterIP
+  extraArgs:
+    - --insecure
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 100m
+      memory: 256Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

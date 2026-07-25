@@ -1,0 +1,27 @@
+# Registered once, manually, after ArgoCD is confirmed Running:
+#   kubectl apply -f kubernetes/base/argocd/application.yaml
+#
+# Not part of any kustomization — this bootstraps ArgoCD to watch the repo;
+# from here on ArgoCD pulls kubernetes/overlays/production on its own sync
+# loop. CI (Phase 6) only bot-commits image tag changes into that overlay —
+# it never runs `kubectl apply` directly (docs/infra-plan.md GitOps decision).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: care-management-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Mik3asg/multi-tenant-care-management-saas.git
+    targetRevision: main
+    path: kubernetes/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: production
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

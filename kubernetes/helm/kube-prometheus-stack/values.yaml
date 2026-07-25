@@ -1,0 +1,26 @@
+# kube-prometheus-stack — sized down for a small portfolio node group.
+# Grafana admin password left at chart default deliberately: nothing here is
+# exposed via ingress yet (kubectl port-forward only), so it's not a real
+# secret boundary at this stage. Revisit if/when Grafana gets a public ingress.
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 512Mi
+
+alertmanager:
+  enabled: false
+
+grafana:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi

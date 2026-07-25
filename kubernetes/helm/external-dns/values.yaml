@@ -1,0 +1,28 @@
+# external-dns — Cloudflare provider. The API token is injected via the
+# "cloudflare-api-token" k8s Secret that ESO materializes from Secrets Manager
+# (see modules/cluster-addons/cloudflare-secrets.tf). domainFilters and
+# txtOwnerId are set via `set` in the helm_release, not hardcoded here.
+#
+# NOTE: check this chart's current values.yaml/README before applying — the
+# expected env var shape for provider credentials has changed across
+# external-dns chart versions.
+provider:
+  name: cloudflare
+
+env:
+  - name: CF_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: cloudflare-api-token
+        key: api-token
+
+sources:
+  - ingress
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi

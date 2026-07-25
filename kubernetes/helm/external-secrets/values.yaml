@@ -1,0 +1,10 @@
+# external-secrets (ESO). serviceAccount name/IRSA annotation are set via
+# `set` in the helm_release so they can reference the Terraform-created role.
+installCRDs: true
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
