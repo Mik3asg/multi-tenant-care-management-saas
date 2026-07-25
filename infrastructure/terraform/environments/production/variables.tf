@@ -121,4 +121,4 @@ variable "db_credentials_secret_name" {
   description = "Stable name for the Terraform-managed shadow secret mirroring the RDS master password (see main.tf comment)"
   type        = string
   default     = "care-db-credentials"
-}
+}# Checkov PR-check test
