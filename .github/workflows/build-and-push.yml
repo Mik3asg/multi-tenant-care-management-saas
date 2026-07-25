@@ -44,7 +44,7 @@ jobs:
 
       # Blocks the workflow on CRITICAL findings.
       - name: Trivy scan (block on CRITICAL)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.ECR_REGISTRY }}/care-management/backend:${{ steps.vars.outputs.tag }}
           severity: CRITICAL
@@ -54,7 +54,7 @@ jobs:
       # Phase 6: "block merge on CRITICAL, report HIGH").
       - name: Trivy scan (report HIGH, non-blocking)
         if: always()
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.ECR_REGISTRY }}/care-management/backend:${{ steps.vars.outputs.tag }}
           severity: HIGH
@@ -87,7 +87,7 @@ jobs:
         run: docker build -t $ECR_REGISTRY/care-management/frontend:${{ steps.vars.outputs.tag }} ./frontend
 
       - name: Trivy scan (block on CRITICAL)
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.ECR_REGISTRY }}/care-management/frontend:${{ steps.vars.outputs.tag }}
           severity: CRITICAL
@@ -95,7 +95,7 @@ jobs:
 
       - name: Trivy scan (report HIGH, non-blocking)
         if: always()
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ env.ECR_REGISTRY }}/care-management/frontend:${{ steps.vars.outputs.tag }}
           severity: HIGH
