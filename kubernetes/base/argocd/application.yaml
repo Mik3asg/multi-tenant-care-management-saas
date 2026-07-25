@@ -25,12 +25,20 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
-  # ESO writes status fields (refreshTime, sync conditions) back onto the
-  # ExternalSecret object after every sync — without this, ArgoCD sees that
-  # as permanent drift from the git-committed spec and loops re-syncing a
-  # resource that's actually fine (Health already reports "Secret was synced").
+  # ESO's admission webhook back-fills defaults on fields this manifest
+  # leaves unset (spec.target.creationPolicy/deletionPolicy, and
+  # conversionStrategy/decodingStrategy/metadataPolicy on every data[].remoteRef
+  # entry), plus writes status fields (refreshTime, sync conditions) after
+  # every sync. Confirmed via `kubectl get externalsecret ... -o yaml` — none
+  # of this is real drift, just ESO's own defaulting, but ArgoCD's diff
+  # doesn't know that without being told explicitly.
   ignoreDifferences:
     - group: external-secrets.io
       kind: ExternalSecret
-      jsonPointers:
-        - /status
+      jqPathExpressions:
+        - '.status'
+        - '.spec.target.creationPolicy'
+        - '.spec.target.deletionPolicy'
+        - '.spec.data[].remoteRef.conversionStrategy'
+        - '.spec.data[].remoteRef.decodingStrategy'
+        - '.spec.data[].remoteRef.metadataPolicy'
